@@ -51,7 +51,6 @@ class SAMLBackend(BackendModule):
         :param name: name of the plugin
         """
         super().__init__(outgoing, internal_attributes, base_url, name)
-
         sp_config = SPConfig().load(copy.deepcopy(config["sp_config"]), False)
         self.sp = Base(sp_config)
 
@@ -254,6 +253,10 @@ class SAMLBackend(BackendModule):
                 url_map.append(
                     ("^%s$" % parsed_endp.path[1:], self.disco_response))
 
+        parsed_entity_id = urlparse(self.sp.config.entityid)
+
+        url_map.append(("^{0}".format(parsed_entity_id.path[1:]),
+                        self._metadata_endpoint))
         return url_map
 
     def get_metadata_desc(self):

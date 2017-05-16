@@ -385,8 +385,11 @@ class SAMLFrontend(FrontendModule):
                 valid_providers = valid_providers.lstrip("|")
                 parsed_endp = urlparse(endp)
                 url_map.append(("(%s)/%s$" % (valid_providers, parsed_endp.path),
-                                functools.partial(self.handle_authn_request, binding_in=binding)))
-
+                        functools.partial(self.handle_authn_request, binding_in=binding))
+                )
+        parsed_entity_id = urlparse(self.idp_config["entityid"])
+        url_map.append(("^{0}".format(parsed_entity_id.path[1:]),
+                       self._metadata_endpoint))
         return url_map
 
     def _build_idp_config_endpoints(self, config, providers):
