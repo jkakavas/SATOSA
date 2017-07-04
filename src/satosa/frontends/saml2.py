@@ -21,6 +21,7 @@ from ..logging_util import satosa_logging
 from ..response import Response
 from ..response import ServiceError
 from ..saml_util import make_saml_response
+from ..util import get_dict_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ class SAMLFrontend(FrontendModule):
         context.state[self.name] = self._create_state_data(context, idp.response_args(authn_req),
                                                            context.request.get("RelayState"))
 
-        if authn_req.name_id_policy:
+        if authn_req.name_id_policy and authn_req.name_id_policy.format:
             name_format = saml_name_id_format_to_hash_type(authn_req.name_id_policy.format)
         else:
             # default to name id format from metadata, or just transient name id
@@ -271,9 +272,10 @@ class SAMLFrontend(FrontendModule):
         else:
             auth_info["class_ref"] = internal_response.auth_info.auth_class_ref
 
+        auth_info["authn_auth"] = internal_response.auth_info.issuer
+
         if self.custom_attribute_release:
-            custom_release_per_idp = self.custom_attribute_release.get(internal_response.auth_info.issuer, {})
-            custom_release = custom_release_per_idp.get(resp_args["sp_entity_id"], {})
+            custom_release = get_dict_defaults(self.custom_attribute_release, internal_response.auth_info.issuer, resp_args["sp_entity_id"])
             attributes_to_remove = custom_release.get("exclude", [])
             for k in attributes_to_remove:
                 ava.pop(k, None)
@@ -285,12 +287,34 @@ class SAMLFrontend(FrontendModule):
 
         satosa_logging(logger, logging.DEBUG, "returning attributes %s" % json.dumps(ava), context.state)
 
+        # assume saml2int defaults: sign response but not the assertion & allow override
+        sign_assertion = False
+        try:
+            sign_assertion = self.config['idp_config']['service']['idp']['policy']['default']['sign_assertion']
+        except (KeyError, AttributeError, ValueError):
+            pass
+        try:
+            sign_assertion = self.config['idp_config']['service']['idp']['policy'][resp_args['sp_entity_id']]['sign_assertion']
+        except (KeyError, AttributeError, ValueError):
+            pass
+
+        sign_response = True
+        try:
+            sign_response = self.config['idp_config']['service']['idp']['policy']['default']['sign_response']
+        except (KeyError, AttributeError, ValueError):
+            pass
+        try:
+            sign_response = self.config['idp_config']['service']['idp']['policy'][resp_args['sp_entity_id']]['sign_response']
+        except (KeyError, AttributeError, ValueError):
+            pass
+
         # Construct arguments for method create_authn_response on IdP Server instance
         args = {
                 'identity'      : ava,
                 'name_id'       : name_id,
                 'authn'         : auth_info,
-                'sign_response' : True
+                'sign_response' : sign_response,
+                'sign_assertion': sign_assertion
                 }
 
         # Add the SP details
