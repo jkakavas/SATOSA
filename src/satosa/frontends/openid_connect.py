@@ -57,8 +57,6 @@ class OpenIDConnectFrontend(FrontendModule):
         scopes_supported = self.config["provider"].get("scopes_supported", ["openid"])
         capabilities = {
             "issuer": self.base_url,
-            "authorization_endpoint": "{}/{}".format(endpoint_baseurl, AuthorizationEndpoint.url),
-            "jwks_uri": "{}/jwks".format(endpoint_baseurl),
             "response_types_supported": response_types_supported,
             "id_token_signing_alg_values_supported": [self.signing_key.alg],
             "response_modes_supported": ["fragment", "query"],
@@ -152,34 +150,39 @@ class OpenIDConnectFrontend(FrontendModule):
         else:
             backend_name = backend_names[0]
 
-        endpoint_baseurl = "{}/{}".format(self.base_url, self.name)
+        # Get endpoint baseurl from config, or default to use base_url plus module name
+        endpoint_baseurl = self.config.get("endpoint_baseurl", "{}/{}".format(self.base_url, self.name))
         self._create_provider(endpoint_baseurl)
 
-        provider_config = ("^.well-known/openid-configuration$", self.provider_config)
-        jwks_uri = ("^{}/jwks$".format(self.name), self.jwks)
-
-        if backend_name:
-            # if there is only one backend, include its name in the path so the default routing can work
-            auth_endpoint = "{}/{}/{}/{}".format(self.base_url, backend_name, self.name, AuthorizationEndpoint.url)
-            self.provider.configuration_information["authorization_endpoint"] = auth_endpoint
-            auth_path = urlparse(auth_endpoint).path.lstrip("/")
-        else:
-            auth_path = "{}/{}".format(self.name, AuthorizationEndpoint.url)
+        auth_endpoint_url = "{}/{}".format(endpoint_baseurl, AuthorizationEndpoint.url)
+        self.provider.configuration_information["authorization_endpoint"] = auth_endpoint_url
+        auth_path = urlparse(auth_endpoint_url).path.lstrip("/")
         authentication = ("^{}$".format(auth_path), self.handle_authn_request)
-        url_map = [provider_config, jwks_uri, authentication]
+
+        provider_config = ("^.well-known/openid-configuration$", self.provider_config)
+        jwks_url = "{}/jwks".format(endpoint_baseurl)
+        self.provider.configuration_information["jwks_uri"] = jwks_url
+        jwks_endpoint_path = urlparse(jwks_url).path.lstrip("/")
+        jwks_endpoint = ("^{}$".format(jwks_endpoint_path), self.jwks)
+        url_map = [provider_config, jwks_endpoint, authentication]
 
         if any("code" in v for v in self.provider.configuration_information["response_types_supported"]):
-            self.provider.configuration_information["token_endpoint"] = "{}/{}".format(endpoint_baseurl,
-                                                                                       TokenEndpoint.url)
-            token_endpoint = ("^{}/{}".format(self.name, TokenEndpoint.url), self.token_endpoint)
+            token_endpoint_url = "{}/{}".format(endpoint_baseurl, TokenEndpoint.url)
+            self.provider.configuration_information["token_endpoint"] = token_endpoint_url
+            token_endpoint_path = urlparse(token_endpoint_url).path.lstrip("/")
+            token_endpoint = ("^{}".format(token_endpoint_path), self.token_endpoint)
             url_map.append(token_endpoint)
 
-            self.provider.configuration_information["userinfo_endpoint"] = "{}/{}".format(endpoint_baseurl,
-                                                                                          UserinfoEndpoint.url)
-            userinfo_endpoint = ("^{}/{}".format(self.name, UserinfoEndpoint.url), self.userinfo_endpoint)
+            userinfo_endpoint_url = "{}/{}".format(endpoint_baseurl, UserinfoEndpoint.url)
+            self.provider.configuration_information["userinfo_endpoint"] = userinfo_endpoint_url
+            userinfo_endpoint_path = urlparse(userinfo_endpoint_url).path.lstrip("/")
+            userinfo_endpoint = ("^{}".format(userinfo_endpoint_path), self.userinfo_endpoint)
             url_map.append(userinfo_endpoint)
+
         if "registration_endpoint" in self.provider.configuration_information:
-            client_registration = ("^{}/{}".format(self.name, RegistrationEndpoint.url), self.client_registration)
+            client_registration_url = "{}/{}".format(endpoint_baseurl, RegistrationEndpoint.url)
+            client_registration_path = urlparse(client_registration_url).path.lstrip("/")
+            client_registration = ("^{}".format(client_registration_path), self.client_registration)
             url_map.append(client_registration)
 
         return url_map
